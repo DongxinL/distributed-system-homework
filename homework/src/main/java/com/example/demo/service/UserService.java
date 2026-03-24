@@ -1,10 +1,12 @@
 package com.example.demo.service;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.demo.entity.User;
 import com.example.demo.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class UserService {
@@ -12,12 +14,15 @@ public class UserService {
     @Autowired
     private UserMapper userMapper;
 
+    @DS("slave")
     public User login(String username, String password) {
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("username", username).eq("password", password);
         return userMapper.selectOne(queryWrapper);
     }
 
+    @DS("master")
+    @Transactional
     public boolean register(User user) {
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("username", user.getUsername());

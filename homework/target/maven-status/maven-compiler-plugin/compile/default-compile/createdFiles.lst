@@ -1,0 +1,14 @@
+com\example\demo\DemoApplication.class
+com\example\demo\entity\User.class
+com\example\demo\service\ProductService.class
+com\example\demo\service\UserService.class
+com\example\demo\controller\ProductController.class
+com\example\demo\mapper\InventoryMapper.class
+com\example\demo\config\RedisConfig.class
+com\example\demo\TestController.class
+com\example\demo\dto\ProductDetailDTO.class
+com\example\demo\entity\Inventory.class
+com\example\demo\controller\UserController.class
+com\example\demo\mapper\UserMapper.class
+com\example\demo\entity\Product.class
+com\example\demo\mapper\ProductMapper.class

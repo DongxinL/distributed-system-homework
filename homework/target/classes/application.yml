@@ -4,3 +4,29 @@ server:
 spring:
   application:
     name: demo-app
+  datasource:
+    dynamic:
+      primary: master
+      strict: false
+      datasource:
+        master:
+          url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/test_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+          username: ${SPRING_DATASOURCE_USERNAME:user}
+          password: ${SPRING_DATASOURCE_PASSWORD:password}
+          driver-class-name: com.mysql.cj.jdbc.Driver
+        slave:
+          url: ${SPRING_DATASOURCE_SLAVE_URL:jdbc:mysql://localhost:3308/test_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+          username: ${SPRING_DATASOURCE_SLAVE_USERNAME:user}
+          password: ${SPRING_DATASOURCE_SLAVE_PASSWORD:password}
+          driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 3000ms
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.example.demo.entity
+  configuration:
+    map-underscore-to-camel-case: true

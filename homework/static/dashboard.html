@@ -59,15 +59,16 @@
             <div v-if="products.length === 0" class="empty-state">
                 暂无商品数据
             </div>
-            <div v-for="p in products" :key="p.id" class="product-card">
+            <div v-for="p in products" :key="p.id" class="product-card"
+                 @click="viewDetail(p.id)" style="cursor: pointer;">
                 <div style="height: 150px; background: #eee; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
-                    <img v-if="p.imageUrl" :src="p.imageUrl" :alt="p.name" @error="$event.target.style.display='none'">
+                    <img v-if="p.imageUrl && !p._imgErr" :src="p.imageUrl" :alt="p.name" @error="p._imgErr = true">
                     <span v-else>暂无图片</span>
                 </div>
                 <h3>{{ p.name }}</h3>
                 <p style="color: #666; font-size: 0.9em; min-height: 40px;">{{ p.description }}</p>
                 <div class="price">¥{{ p.price }}</div>
-                <button @click="buy(p.id)" style="width: 100%;">立即购买</button>
+                <button @click.stop="buy(p.id)" style="width: 100%;">立即购买</button>
             </div>
         </div>
     </div>
@@ -113,12 +114,17 @@
                     alert('购买功能尚未实现（需要实现库存服务和订单服务）')
                 }
 
+                const viewDetail = (id) => {
+                    window.location.href = `product-detail.html?id=${id}`
+                }
+
                 return {
                     username,
                     products,
                     loading,
                     logout,
-                    buy
+                    buy,
+                    viewDetail
                 }
             }
         }).mount('#app')
