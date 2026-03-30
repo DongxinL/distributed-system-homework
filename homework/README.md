@@ -401,3 +401,75 @@ spring:
 | **主从延迟时间** (峰值压力下) | N/A | < 10ms | N/A |
 
 **结论**：引入读写分离后，查询压力被转移至从库，主库专心处理写入和事务，大幅降低了主库的 CPU 和 IO 压力。系统整体的并发读取吞吐量显著提升。
+
+---
+
+## Homework4：商品秒杀架构 (Redis 缓存库存 + Kafka 异步削峰)
+
+本次作业在原有的系统上实现了**商品秒杀下单**的核心逻辑。通过引入消息队列 Kafka 和 Redis 的高并发特性，解决秒杀场景下数据库瞬间被打挂（击穿/雪崩）以及超卖的问题。
+
+### 1. 核心架构设计
+
+```mermaid
+graph TD
+    User[用户点击购买] --> Nginx[Nginx]
+    Nginx --> App[Spring Boot (FlashSaleController)]
+    
+    subgraph "第一阶段：Redis 预扣减 (同步, 极快)"
+        App -->|1. 执行 Lua 脚本| Redis[(Redis)]
+        Redis -.->|2. 返回扣减结果| App
+    end
+    
+    subgraph "第二阶段：Kafka 异步削峰"
+        App -->|3. 库存充足, 发送订单消息| Kafka[Kafka (flash-sale-orders)]
+        App -.->|4. 立即返回前端| User
+    end
+    
+    subgraph "第三阶段：异步落库"
+        KafkaConsumer[Kafka 消费者] -->|5. 拉取消息| Kafka
+        KafkaConsumer -->|6. 真实扣减库存 (乐观锁/条件更新)| MySQL[(MySQL Master)]
+        KafkaConsumer -->|7. 创建订单| MySQL
+    end
+```
+
+### 2. 关键技术点实现
+
+#### 2.1 启动预热 (Inventory Preload)
+秒杀开始前，系统必须将 MySQL 中的库存加载到 Redis 中。
+- **实现方式**：使用 `@PostConstruct` 注解在 Spring Boot 启动时执行 `InventoryPreloadService`。
+- **流程**：从 MySQL（Slave库）读取所有商品库存，以 `seckill:stock:{productId}` 为 Key 写入 Redis。
+
+#### 2.2 Redis 预扣减与防超卖 (Lua 脚本)
+秒杀瞬间流量极大，不能直接查询和修改 MySQL。
+- **实现方式**：在 `FlashSaleService` 中使用 Redis Lua 脚本。
+- **优势**：Lua 脚本在 Redis 中是**原子性**执行的，完美解决了并发情况下的超卖问题。脚本会判断当前库存是否大于等于购买数量，如果是则执行 `decrby`，否则返回 `-1` 阻挡请求。
+
+#### 2.3 Kafka 异步削峰填谷
+如果 Redis 扣减成功，代表用户抢到了商品，但此时不能立刻同步操作 MySQL 写订单，否则依然会因为并发写导致 DB 宕机。
+- **实现方式**：
+  1. 引入 `bitnami/kafka` (基于 KRaft 模式，免 Zookeeper)。
+  2. 生产者（Controller层）：将 `userId`、`productId` 封装为 `OrderMessage` 发送至 Kafka Topic `flash-sale-orders`。
+  3. 消费者（Service层）：`KafkaOrderConsumer` 按照 MySQL 的承载能力平滑地拉取消息。
+- **落地数据库**：消费者获取消息后，操作主库 (`@DS("master")`)，使用 `update inventory set stock = stock - 1 where stock > 0` 再次做安全校验，随后 `insert` 订单记录。
+
+### 3. 环境配置与启动
+
+本次更新修改了 `docker-compose.yml`：
+- **新增 Kafka** 容器，暴露 9092 端口。
+- **Spring Boot 配置** (`application.yml`) 增加了 `spring.kafka` 相关的生产者和消费者序列化配置。
+
+**启动步骤**：
+```bash
+# 1. 重新构建并启动包含 Kafka 的所有服务
+docker-compose up -d --build
+
+# 2. (如果是全新环境) 执行主从复制初始化脚本
+bash setup-replication.sh
+```
+
+### 4. 测试流程
+1. **登录**系统，进入商品列表。
+2. 点击某件商品进入**详情页**。
+3. 疯狂点击 **"立即购买"** 按钮模拟高并发抢购。
+4. **前端响应**：系统会立刻弹窗提示 "抢购请求已受理，正在排队处理中..."（这是 Redis 和 Kafka 处理的结果，响应极快）。
+5. **后端验证**：使用 DBeaver 连接 MySQL (`localhost:3307`)，查看 `orders` 表，会发现订单被异步平滑地创建出来，且 `inventory` 表中的库存没有发生超卖（不会出现负数）。

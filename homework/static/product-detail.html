@@ -193,8 +193,39 @@
                     window.location.href = 'dashboard.html'
                 }
 
-                const buy = () => {
-                    alert('购买功能尚未实现（需要实现库存服务和订单服务）')
+                const buy = async () => {
+                    const userStr = localStorage.getItem('user')
+                    if (!userStr) {
+                        window.location.href = 'login.html'
+                        return
+                    }
+                    const user = JSON.parse(userStr)
+                    
+                    try {
+                        const formData = new URLSearchParams()
+                        formData.append('userId', user.id)
+                        formData.append('productId', product.value.id)
+                        formData.append('quantity', 1)
+
+                        const res = await fetch('/api/orders/flash-sale', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded'
+                            },
+                            body: formData.toString()
+                        })
+                        const data = await res.json()
+                        if (data.success) {
+                            alert('🎉 ' + data.message)
+                            // 实际场景可能会轮询订单状态，这里为了简单直接重新加载商品信息
+                            setTimeout(() => loadProduct(product.value.id), 2000)
+                        } else {
+                            alert('❌ ' + data.message)
+                            loadProduct(product.value.id) // 刷新库存
+                        }
+                    } catch (e) {
+                        alert('网络错误: ' + e.message)
+                    }
                 }
 
                 return { product, loading, error, imgError, goBack, buy }
