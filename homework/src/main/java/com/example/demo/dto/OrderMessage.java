@@ -10,6 +10,7 @@ import java.io.Serializable;
 @NoArgsConstructor
 @AllArgsConstructor
 public class OrderMessage implements Serializable {
+    private Long orderId; // 新增订单ID，由应用层提前生成
     private Long userId;
     private Long productId;
     private Integer quantity;
