@@ -12,6 +12,12 @@ services:
       - ./mysql-init:/docker-entrypoint-initdb.d
     ports:
       - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uuser", "-ppassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     networks:
       - distributed-net
     command: --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --default-authentication-plugin=mysql_native_password
@@ -28,6 +34,12 @@ services:
       - D:/学习资料/distributed_system/distributed_data/mysql-slave:/var/lib/mysql
     ports:
       - "3308:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uuser", "-ppassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     networks:
       - distributed-net
     depends_on:
@@ -41,6 +53,11 @@ services:
       - "6379:6379"
     volumes:
       - D:/学习资料/distributed_system/distributed_data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - distributed-net
     command: redis-server --appendonly yes
@@ -71,6 +88,7 @@ services:
     container_name: app1
     ports:
       - "8081:8080"
+    restart: on-failure
     environment:
       - SERVER_PORT=8080
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/test_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
@@ -84,10 +102,14 @@ services:
       - SPRING_DATA_REDIS_PORT=6379
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
-      - mysql-master
-      - mysql-slave
-      - redis
-      - kafka
+      mysql-master:
+        condition: service_healthy
+      mysql-slave:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
     networks:
       - distributed-net
 
@@ -96,6 +118,7 @@ services:
     container_name: app2
     ports:
       - "8082:8080"
+    restart: on-failure
     environment:
       - SERVER_PORT=8080
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/test_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
@@ -109,10 +132,14 @@ services:
       - SPRING_DATA_REDIS_PORT=6379
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
-      - mysql-master
-      - mysql-slave
-      - redis
-      - kafka
+      mysql-master:
+        condition: service_healthy
+      mysql-slave:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
     networks:
       - distributed-net
 

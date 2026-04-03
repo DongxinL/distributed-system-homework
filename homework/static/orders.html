@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的订单 - 分布式系统作业</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        .orders-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .back-btn {
+            background: #6c757d;
+            margin-bottom: 20px;
+        }
+        .order-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+        }
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        .order-id {
+            font-size: 0.85em;
+            color: #888;
+            word-break: break-all;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .status-CREATED { background: #fff3cd; color: #856404; }
+        .status-PAID { background: #d4edda; color: #155724; }
+        .status-PAYMENT_FAILED { background: #f8d7da; color: #721c24; }
+        .status-CANCELLED { background: #e2e3e5; color: #383d41; }
+        .order-body {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .order-info {
+            flex: 1;
+        }
+        .order-info .product-name {
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .order-info .order-meta {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .order-price {
+            color: #e44d26;
+            font-weight: bold;
+            font-size: 1.3em;
+            margin-right: 20px;
+        }
+        .order-actions button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 8px;
+            font-size: 0.9em;
+        }
+        .pay-btn {
+            background: #28a745;
+            color: white;
+        }
+        .pay-btn:hover { background: #218838; }
+        .pay-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .cancel-btn {
+            background: #dc3545;
+            color: white;
+        }
+        .cancel-btn:hover { background: #c82333; }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .refresh-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="container orders-container">
+        <button class="back-btn" @click="goBack">← 返回商品列表</button>
+
+        <div style="display: flex; align-items: center; margin-bottom: 20px;">
+            <h1 style="margin: 0;">我的订单</h1>
+            <button class="refresh-btn" @click="loadOrders">🔄 刷新</button>
+        </div>
+
+        <div v-if="loading" style="text-align: center; padding: 40px;">加载中...</div>
+
+        <div v-else-if="orders.length === 0" class="empty-state">
+            <h2>暂无订单</h2>
+            <p>快去抢购心仪的商品吧！</p>
+        </div>
+
+        <div v-else>
+            <div v-for="order in orders" :key="order.id" class="order-card">
+                <div class="order-header">
+                    <span class="order-id">订单号: {{ order.id }}</span>
+                    <span :class="'status-badge status-' + order.status">
+                        {{ statusText(order.status) }}
+                    </span>
+                </div>
+                <div class="order-body">
+                    <div class="order-info">
+                        <div class="product-name">商品ID: {{ order.productId }}</div>
+                        <div class="order-meta">
+                            数量: {{ order.quantity }} | 
+                            下单时间: {{ formatTime(order.createdAt) }}
+                        </div>
+                    </div>
+                    <div class="order-price">¥{{ order.totalPrice }}</div>
+                    <div class="order-actions">
+                        <button v-if="order.status === 'CREATED'" 
+                                class="pay-btn" 
+                                :disabled="order._paying"
+                                @click="payOrder(order)">
+                            {{ order._paying ? '支付中...' : '💳 支付' }}
+                        </button>
+                        <button v-if="order.status === 'CREATED' || order.status === 'PAYMENT_FAILED'" 
+                                class="cancel-btn" 
+                                @click="cancelOrder(order)">
+                            取消订单
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue
+
+        createApp({
+            setup() {
+                const orders = ref([])
+                const loading = ref(true)
+                let userId = null
+
+                onMounted(() => {
+                    const userStr = localStorage.getItem('user')
+                    if (!userStr) {
+                        window.location.href = 'login.html'
+                        return
+                    }
+                    userId = JSON.parse(userStr).id
+                    loadOrders()
+                })
+
+                const loadOrders = async () => {
+                    loading.value = true
+                    try {
+                        const res = await fetch(`/api/orders/user?userId=${userId}`)
+                        const data = await res.json()
+                        if (data.success) {
+                            orders.value = data.data.map(o => ({ ...o, _paying: false }))
+                        }
+                    } catch (e) {
+                        alert('加载订单失败: ' + e.message)
+                    } finally {
+                        loading.value = false
+                    }
+                }
+
+                const payOrder = async (order) => {
+                    order._paying = true
+                    try {
+                        const formData = new URLSearchParams()
+                        formData.append('orderId', order.id)
+                        formData.append('userId', userId)
+
+                        const res = await fetch('/api/orders/pay', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: formData.toString()
+                        })
+                        const data = await res.json()
+                        if (data.success) {
+                            alert('✅ ' + data.message)
+                            // 轮询等待状态更新
+                            setTimeout(() => loadOrders(), 2000)
+                        } else {
+                            alert('❌ ' + data.message)
+                        }
+                    } catch (e) {
+                        alert('网络错误: ' + e.message)
+                    } finally {
+                        order._paying = false
+                    }
+                }
+
+                const cancelOrder = async (order) => {
+                    if (!confirm('确认取消该订单吗？')) return
+                    try {
+                        const formData = new URLSearchParams()
+                        formData.append('orderId', order.id)
+                        formData.append('userId', userId)
+
+                        const res = await fetch('/api/orders/cancel', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: formData.toString()
+                        })
+                        const data = await res.json()
+                        alert(data.success ? '✅ ' + data.message : '❌ ' + data.message)
+                        loadOrders()
+                    } catch (e) {
+                        alert('网络错误: ' + e.message)
+                    }
+                }
+
+                const statusText = (status) => {
+                    const map = {
+                        'CREATED': '待支付',
+                        'PAID': '已支付',
+                        'PAYMENT_FAILED': '支付失败',
+                        'CANCELLED': '已取消'
+                    }
+                    return map[status] || status
+                }
+
+                const formatTime = (t) => {
+                    if (!t) return '-'
+                    return new Date(t).toLocaleString('zh-CN')
+                }
+
+                const goBack = () => {
+                    window.location.href = 'dashboard.html'
+                }
+
+                return { orders, loading, loadOrders, payOrder, cancelOrder, statusText, formatTime, goBack }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>

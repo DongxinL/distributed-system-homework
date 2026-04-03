@@ -37,11 +37,27 @@ CREATE TABLE IF NOT EXISTS orders (
     product_id BIGINT NOT NULL,
     quantity INT NOT NULL,
     total_price DECIMAL(10,2) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'CREATED',
+    status VARCHAR(20) NOT NULL DEFAULT 'CREATED' COMMENT '订单状态: CREATED/PAID/PAYMENT_FAILED/CANCELLED',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_user_product (user_id, product_id)
+    UNIQUE KEY uk_user_product (user_id, product_id),
+    INDEX idx_user_status (user_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 本地消息表（保障基于消息的一致性）
+CREATE TABLE IF NOT EXISTS local_message (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    message_key VARCHAR(100) NOT NULL COMMENT '消息唯一标识（如订单ID）',
+    topic VARCHAR(100) NOT NULL COMMENT 'Kafka Topic',
+    message_body TEXT NOT NULL COMMENT '消息内容JSON',
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/SENT/CONSUMED/FAILED',
+    retry_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_message_key_topic (message_key, topic),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='本地消息表 - 保障分布式事务最终一致性';
 
 -- 初始化数据
 INSERT INTO users (username, password, email) VALUES 

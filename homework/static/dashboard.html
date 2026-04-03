@@ -36,11 +36,33 @@
             float: right;
             background: #dc3545;
         }
+        .orders-btn {
+            float: right;
+            background: #17a2b8;
+            margin-right: 10px;
+        }
         .empty-state {
             text-align: center;
             padding: 40px;
             color: #666;
             grid-column: 1 / -1;
+        }
+        .flash-sale-btn {
+            width: 100%;
+            background: #e44d26;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .flash-sale-btn:hover {
+            background: #c0392b;
+        }
+        .flash-sale-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
         }
     </style>
 </head>
@@ -49,6 +71,7 @@
         <div style="overflow: hidden; margin-bottom: 20px;">
             <h1 style="float: left;">商品列表</h1>
             <button class="logout-btn" @click="logout">退出登录</button>
+            <button class="orders-btn" @click="goOrders">我的订单</button>
         </div>
         
         <p>欢迎回来, <span style="font-weight: bold; color: #007bff;">{{ username }}</span>!</p>
@@ -68,7 +91,9 @@
                 <h3>{{ p.name }}</h3>
                 <p style="color: #666; font-size: 0.9em; min-height: 40px;">{{ p.description }}</p>
                 <div class="price">¥{{ p.price }}</div>
-                <button @click.stop="buy(p.id)" style="width: 100%;">立即购买</button>
+                <button class="flash-sale-btn" @click.stop="buy(p.id)" :disabled="p._buying">
+                    {{ p._buying ? '抢购中...' : '⚡ 秒杀抢购' }}
+                </button>
             </div>
         </div>
     </div>
@@ -110,8 +135,42 @@
                     }
                 }
 
-                const buy = (id) => {
-                    alert('购买功能尚未实现（需要实现库存服务和订单服务）')
+                const buy = async (id) => {
+                    const userStr = localStorage.getItem('user')
+                    if (!userStr) {
+                        window.location.href = 'login.html'
+                        return
+                    }
+                    const user = JSON.parse(userStr)
+                    const p = products.value.find(x => x.id === id)
+                    if (p) p._buying = true
+
+                    try {
+                        const formData = new URLSearchParams()
+                        formData.append('userId', user.id)
+                        formData.append('productId', id)
+                        formData.append('quantity', 1)
+
+                        const res = await fetch('/api/orders/flash-sale', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: formData.toString()
+                        })
+                        const data = await res.json()
+                        if (data.success) {
+                            alert('🎉 ' + data.message + '\n订单号: ' + data.orderId)
+                        } else {
+                            alert('❌ ' + data.message)
+                        }
+                    } catch (e) {
+                        alert('网络错误: ' + e.message)
+                    } finally {
+                        if (p) p._buying = false
+                    }
+                }
+
+                const goOrders = () => {
+                    window.location.href = 'orders.html'
                 }
 
                 const viewDetail = (id) => {
@@ -124,7 +183,8 @@
                     loading,
                     logout,
                     buy,
-                    viewDetail
+                    viewDetail,
+                    goOrders
                 }
             }
         }).mount('#app')

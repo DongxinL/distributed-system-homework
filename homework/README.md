@@ -273,6 +273,7 @@ graph TD
 | :--- | :--- | :--- |
 | **缓存** | Redis 7 (Alpine) | 高性能内存缓存，支持分布式锁 |
 | **Redis 客户端** | Spring Data Redis | StringRedisTemplate 操作缓存 |
+| **消息队列** | Apache Kafka (KRaft) | 异步削峰，基于消息的最终一致性 |
 
 ### 验证方法
 
@@ -473,3 +474,161 @@ bash setup-replication.sh
 3. 疯狂点击 **"立即购买"** 按钮模拟高并发抢购。
 4. **前端响应**：系统会立刻弹窗提示 "抢购请求已受理，正在排队处理中..."（这是 Redis 和 Kafka 处理的结果，响应极快）。
 5. **后端验证**：使用 DBeaver 连接 MySQL (`localhost:3307`)，查看 `orders` 表，会发现订单被异步平滑地创建出来，且 `inventory` 表中的库存没有发生超卖（不会出现负数）。
+
+---
+
+## Homework5：事务与一致性 — 基于消息的最终一致性保障
+
+### 1. 作业需求
+
+在商品秒杀系统中，订单服务和库存服务是两个独立的微服务（逻辑上拆分），分别有各自数据库。需要实现：
+1. **秒杀下单时**：基于 Redis 实现库存预扣减，防超卖、限购
+2. **基于消息的一致性**保障数据最终一致性：
+   - 下单 + 库存扣减一致性
+   - 订单支付 + 订单状态更新一致性
+
+### 2. 一致性架构设计
+
+```mermaid
+graph TD
+    User[用户] --> |1.秒杀请求| FlashSale[FlashSaleService]
+    
+    subgraph "阶段一：Redis 预扣减 + 限购 (同步)"
+        FlashSale --> |Lua脚本原子扣减| Redis[(Redis 库存)]
+        FlashSale --> |SETNX限购检查| Redis
+    end
+    
+    subgraph "阶段二：下单+库存扣减一致性 (Kafka 消息)"
+        FlashSale --> |发送订单消息| KafkaSale[Kafka: flash-sale-orders]
+        KafkaSale --> KafkaConsumer[KafkaOrderConsumer]
+        KafkaConsumer --> |MySQL扣减库存+创建订单| MySQL[(MySQL)]
+        KafkaConsumer --> |扣减失败→补偿回滚| Redis
+    end
+    
+    User --> |2.支付请求| PayAPI[OrderController.pay]
+    
+    subgraph "阶段三：支付+状态更新一致性 (Kafka 消息)"
+        PayAPI --> |发送支付消息| KafkaPay[Kafka: payment-orders]
+        KafkaPay --> PayConsumer[KafkaOrderConsumer.consumePayment]
+        PayConsumer --> |模拟支付+更新状态| MySQL
+        PayConsumer --> |支付失败→标记PAYMENT_FAILED| MySQL
+    end
+```
+
+### 3. 关键一致性机制实现
+
+#### 3.1 下单 + 库存扣减一致性
+
+| 步骤 | 组件 | 操作 | 一致性保障 |
+| :--- | :--- | :--- | :--- |
+| ① | FlashSaleService | Redis Lua 脚本原子扣减库存 | 原子性操作，防超卖 |
+| ② | FlashSaleService | SETNX 设置用户限购记录 | 防止同一用户重复下单 |
+| ③ | FlashSaleService | 发送 OrderMessage 到 Kafka | 异步削峰 |
+| ④ | KafkaOrderConsumer | 消费消息，MySQL 扣减库存 + 创建订单 | 乐观锁条件更新 (stock >= quantity) |
+| ⑤ | KafkaOrderConsumer | **MySQL 扣减失败 → 补偿回滚 Redis 库存 + 清理限购记录** | **补偿事务机制** |
+| ⑥ | OrderService.createOrder | 幂等性校验（检查订单是否已存在） | 防重复消费 |
+
+**补偿回滚流程** (本次新增的关键代码)：
+```
+Kafka消费消息
+  ├── MySQL扣减库存 + 创建订单 → 成功 → 流程结束
+  └── 失败（库存不足/异常）
+        ├── Redis: INCRBY 恢复库存
+        └── Redis: DELETE 清理限购记录
+```
+
+#### 3.2 订单支付 + 订单状态更新一致性
+
+| 步骤 | 组件 | 操作 | 一致性保障 |
+| :--- | :--- | :--- | :--- |
+| ① | OrderController.pay | 校验订单存在性和归属权 | 安全校验 |
+| ② | OrderService.initiatePayment | 发送 PaymentMessage 到 Kafka | 异步解耦 |
+| ③ | KafkaOrderConsumer.consumePayment | 消费支付消息 | 消息驱动 |
+| ④ | OrderService.processPayment | 幂等性校验 (订单状态必须为 CREATED) | 防重复支付 |
+| ⑤ | OrderService.processPayment | 模拟支付 → 成功则更新状态为 PAID | 条件更新 (CAS) |
+| ⑥ | OrderService.processPayment | 支付失败 → 标记 PAYMENT_FAILED | 失败补偿 |
+
+**订单状态机**：
+```
+CREATED (待支付) 
+  ├── 支付成功 → PAID (已支付)
+  ├── 支付失败 → PAYMENT_FAILED (支付失败)
+  └── 用户取消 → CANCELLED (已取消，回滚数据库库存)
+```
+
+#### 3.3 本地消息表（保障消息可靠投递）
+
+新增 `local_message` 表，用于记录所有需要发送的 Kafka 消息。在实际生产环境中应配合定时任务扫描未发送/未消费的消息进行重试，实现**可靠消息最终一致性**模式。
+
+```sql
+CREATE TABLE local_message (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    message_key VARCHAR(100) NOT NULL,  -- 消息唯一标识（如订单ID）
+    topic VARCHAR(100) NOT NULL,         -- Kafka Topic
+    message_body TEXT NOT NULL,           -- 消息内容JSON
+    status VARCHAR(20) DEFAULT 'PENDING', -- PENDING/SENT/CONSUMED/FAILED
+    retry_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+### 4. 新增/修改文件清单
+
+| 文件 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `dto/PaymentMessage.java` | **新增** | 支付消息DTO |
+| `static/orders.html` | **新增** | 我的订单页面（支付/取消操作） |
+| `service/KafkaOrderConsumer.java` | **修改** | 新增Redis补偿回滚 + 支付消息消费 |
+| `service/OrderService.java` | **修改** | 新增支付/取消/状态管理逻辑 |
+| `controller/OrderController.java` | **修改** | 新增支付/取消接口 |
+| `static/dashboard.html` | **修改** | 秒杀按钮实现 + 订单入口 |
+| `mysql-init/init.sql` | **修改** | 新增 local_message 表 |
+
+### 5. 新增 API 接口
+
+| 接口 | 方法 | URL | 参数 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| **秒杀下单** | POST | `/api/orders/flash-sale` | `userId, productId, quantity` | Redis预扣减 + Kafka异步下单 |
+| **发起支付** | POST | `/api/orders/pay` | `orderId, userId` | 发送支付消息到Kafka，异步处理 |
+| **取消订单** | POST | `/api/orders/cancel` | `orderId, userId` | 取消订单并回滚数据库库存 |
+| **我的订单** | GET | `/api/orders/user` | `userId` | 查询用户所有订单 |
+| **订单详情** | GET | `/api/orders/detail` | `orderId` | 查询单个订单详情 |
+
+### 6. 测试流程
+
+```bash
+# 1. 重新构建并启动所有服务
+docker-compose up -d --build
+
+# 2. (如果是全新环境) 初始化主从复制
+bash setup-replication.sh
+
+# 3. 测试秒杀流程
+# 3.1 登录系统 → 商品列表 → 点击"秒杀抢购"
+# 3.2 进入"我的订单"页面 → 查看订单状态为"待支付"
+# 3.3 点击"支付"按钮 → 刷新后查看订单状态变为"已支付"
+# 3.4 重复秒杀同一商品 → 提示"请勿重复下单"
+
+# 4. 验证一致性
+# 4.1 检查 Redis 库存与 MySQL 库存一致
+docker exec redis redis-cli GET "seckill:stock:1"
+docker exec mysql-master mysql -u user -ppassword test_db -e "SELECT stock FROM inventory WHERE product_id=1"
+
+# 4.2 检查订单状态
+docker exec mysql-master mysql -u user -ppassword test_db -e "SELECT id,status FROM orders"
+
+# 5. 取消订单测试
+# 5.1 创建新订单 → 在"我的订单"页面点击"取消订单"
+# 5.2 验证数据库库存已回滚
+```
+
+### 7. 一致性保障总结
+
+| 场景 | 问题 | 解决方案 | 一致性级别 |
+| :--- | :--- | :--- | :--- |
+| Redis扣减成功，MySQL扣减失败 | 库存不一致 | Kafka消费者补偿回滚Redis库存 + 限购记录 | 最终一致 |
+| 用户重复秒杀 | 同一用户多次购买 | Redis SETNX 限购 + 订单幂等校验 | 强一致 |
+| Kafka消息重复消费 | 重复创建订单 | 订单ID幂等校验（selectById） | 幂等保障 |
+| 支付消息处理失败 | 订单状态不一致 | 标记PAYMENT_FAILED + 条件更新(CAS) | 最终一致 |
+| 用户取消订单 | 库存无法归还 | 取消时同步回滚数据库库存 | 强一致 |

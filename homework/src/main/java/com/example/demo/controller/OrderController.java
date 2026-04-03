@@ -30,7 +30,6 @@ public class OrderController {
                                          @RequestParam(defaultValue = "1") Integer quantity) {
         Map<String, Object> response = new HashMap<>();
         
-        // 实际场景中 userId 应该从 Token/Session 获取，这里为了简化演示直接作为参数传递
         String result = flashSaleService.processFlashSale(userId, productId, quantity);
         
         if (result.startsWith("SUCCESS")) {
@@ -46,6 +45,45 @@ public class OrderController {
             response.put("message", "手慢了，商品已被抢光！");
         }
         
+        return response;
+    }
+
+    /**
+     * 发起支付 — 基于消息的一致性保障（支付+订单状态更新）
+     */
+    @PostMapping("/pay")
+    public Map<String, Object> pay(@RequestParam Long orderId, @RequestParam Long userId) {
+        Map<String, Object> response = new HashMap<>();
+
+        String result = orderService.initiatePayment(orderId, userId);
+
+        if ("SUCCESS".equals(result)) {
+            response.put("success", true);
+            response.put("message", "支付请求已受理，正在处理中...");
+        } else if ("ORDER_NOT_FOUND".equals(result)) {
+            response.put("success", false);
+            response.put("message", "订单不存在或还在创建中，请稍后再试");
+        } else if ("UNAUTHORIZED".equals(result)) {
+            response.put("success", false);
+            response.put("message", "无权操作此订单");
+        } else {
+            String status = result.replace("INVALID_STATUS:", "");
+            response.put("success", false);
+            response.put("message", "订单当前状态为 " + status + "，无法支付");
+        }
+
+        return response;
+    }
+
+    /**
+     * 取消订单
+     */
+    @PostMapping("/cancel")
+    public Map<String, Object> cancel(@RequestParam Long orderId, @RequestParam Long userId) {
+        Map<String, Object> response = new HashMap<>();
+        boolean success = orderService.cancelOrder(orderId, userId);
+        response.put("success", success);
+        response.put("message", success ? "订单已取消" : "取消失败，订单可能已支付或不存在");
         return response;
     }
 
