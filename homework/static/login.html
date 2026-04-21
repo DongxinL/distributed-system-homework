@@ -3,189 +3,178 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - 分布式系统作业</title>
+    <title>登录与注册 - 分布式系统作业</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <style>
-        .auth-container {
-            max-width: 400px;
-            margin: 50px auto;
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .form-group {
-            margin-bottom: 15px;
-            text-align: left;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 8px;
-            box-sizing: border-box;
-        }
-        .tabs {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 1px solid #ddd;
-        }
-        .tab {
-            flex: 1;
-            padding: 10px;
-            cursor: pointer;
-            text-align: center;
-        }
-        .tab.active {
-            border-bottom: 2px solid #007bff;
-            font-weight: bold;
-        }
-        .message-box {
-            margin-top: 15px;
-            padding: 10px;
-            border-radius: 4px;
-            text-align: center;
-        }
-        .message-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .message-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-    </style>
 </head>
 <body>
-    <div id="app" class="container">
-        <div class="auth-container">
-            <div class="tabs">
-                <div class="tab" :class="{ active: isLogin }" @click="isLogin = true">登录</div>
-                <div class="tab" :class="{ active: !isLogin }" @click="isLogin = false">注册</div>
-            </div>
-            
-            <div v-if="isLogin">
-                <h2>系统登录</h2>
-                <div class="form-group">
-                    <label>用户名</label>
-                    <input type="text" v-model="loginForm.username" placeholder="请输入用户名" @keyup.enter="handleLogin">
-                </div>
-                <div class="form-group">
-                    <label>密码</label>
-                    <input type="password" v-model="loginForm.password" placeholder="请输入密码" @keyup.enter="handleLogin">
-                </div>
-                <button @click="handleLogin" :disabled="loading">
-                    {{ loading ? '登录中...' : '登录' }}
-                </button>
-            </div>
+    <div class="auth-shell">
+        <div class="auth-panel fade-up">
+            <div class="auth-grid">
+                <section class="auth-hero">
+                    <span class="hero-badge">第六次作业 · 服务治理实验入口</span>
+                    <h1>分布式秒杀系统<br>登录与治理总览</h1>
+                    <p>
+                        当前版本已补齐 Nacos 注册配置、Spring Cloud Gateway 统一入口、
+                        Redis 预扣减秒杀、Kafka 最终一致性以及网关层限流熔断降级能力。
+                    </p>
+                    <div class="auth-points">
+                        <div class="auth-point">统一访问入口：浏览器请求先进入 Nginx，再转发到 Gateway。</div>
+                        <div class="auth-point">配置动态刷新：业务服务与网关都可从 Nacos 拉取配置。</div>
+                        <div class="auth-point">流量治理演示：登录后可直接在商品页触发限流、熔断和降级测试。</div>
+                    </div>
+                </section>
 
-            <div v-else>
-                <h2>账号注册</h2>
-                <div class="form-group">
-                    <label>用户名</label>
-                    <input type="text" v-model="regForm.username" placeholder="请输入用户名">
-                </div>
-                <div class="form-group">
-                    <label>邮箱</label>
-                    <input type="email" v-model="regForm.email" placeholder="请输入邮箱地址">
-                </div>
-                <div class="form-group">
-                    <label>密码</label>
-                    <input type="password" v-model="regForm.password" placeholder="请输入密码">
-                </div>
-                <button @click="handleRegister" :disabled="loading">
-                    {{ loading ? '注册中...' : '注册' }}
-                </button>
-            </div>
-            
-            <div v-if="message.text" class="message-box" :class="message.isError ? 'message-error' : 'message-success'">
-                {{ message.text }}
+                <section class="auth-form">
+                    <div class="tabs">
+                        <button class="tab-button active" type="button" id="loginTab">登录</button>
+                        <button class="tab-button" type="button" id="registerTab">注册</button>
+                    </div>
+
+                    <form id="loginForm" class="form-stack">
+                        <div>
+                            <h2 class="section-title">欢迎回来</h2>
+                            <p class="section-intro">使用已有账号进入商品页和治理实验台。</p>
+                        </div>
+                        <label class="form-group">
+                            <span class="form-label">用户名</span>
+                            <input class="field" id="loginUsername" type="text" placeholder="请输入用户名" autocomplete="username">
+                        </label>
+                        <label class="form-group">
+                            <span class="form-label">密码</span>
+                            <input class="field" id="loginPassword" type="password" placeholder="请输入密码" autocomplete="current-password">
+                        </label>
+                        <button class="button" id="loginButton" type="submit">进入系统</button>
+                    </form>
+
+                    <form id="registerForm" class="form-stack hidden">
+                        <div>
+                            <h2 class="section-title">创建账号</h2>
+                            <p class="section-intro">注册后可直接体验秒杀、订单和服务治理能力。</p>
+                        </div>
+                        <label class="form-group">
+                            <span class="form-label">用户名</span>
+                            <input class="field" id="registerUsername" type="text" placeholder="建议 4-16 位字符">
+                        </label>
+                        <label class="form-group">
+                            <span class="form-label">邮箱</span>
+                            <input class="field" id="registerEmail" type="email" placeholder="请输入邮箱">
+                        </label>
+                        <label class="form-group">
+                            <span class="form-label">密码</span>
+                            <input class="field" id="registerPassword" type="password" placeholder="请输入密码">
+                        </label>
+                        <button class="button-accent" id="registerButton" type="submit">完成注册</button>
+                    </form>
+
+                    <div id="messageBox" class="message-box hidden"></div>
+                </section>
             </div>
         </div>
     </div>
 
+    <script src="app.js"></script>
     <script>
-        const { createApp, ref, reactive } = Vue
+        (function () {
+            const loginTab = document.getElementById('loginTab');
+            const registerTab = document.getElementById('registerTab');
+            const loginForm = document.getElementById('loginForm');
+            const registerForm = document.getElementById('registerForm');
+            const messageBox = document.getElementById('messageBox');
+            const loginButton = document.getElementById('loginButton');
+            const registerButton = document.getElementById('registerButton');
 
-        createApp({
-            setup() {
-                const isLogin = ref(true)
-                const loading = ref(false)
-                const message = reactive({ text: '', isError: false })
-                
-                const loginForm = reactive({ username: '', password: '' })
-                const regForm = reactive({ username: '', email: '', password: '' })
-
-                const showMessage = (text, isError = false) => {
-                    message.text = text
-                    message.isError = isError
-                    if(!isError && !text.includes('跳转')) {
-                        setTimeout(() => message.text = '', 3000)
-                    }
-                }
-
-                const handleLogin = async () => {
-                    if(!loginForm.username || !loginForm.password) {
-                        showMessage('请输入用户名和密码', true)
-                        return
-                    }
-                    loading.value = true
-                    try {
-                        const res = await fetch('/api/users/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(loginForm)
-                        })
-                        const data = await res.json()
-                        if (data.success) {
-                            showMessage('登录成功！正在跳转...', false)
-                            localStorage.setItem('user', JSON.stringify(data.user))
-                            setTimeout(() => window.location.href = 'dashboard.html', 1000)
-                        } else {
-                            showMessage(data.message || '用户名或密码错误', true)
-                        }
-                    } catch (e) {
-                        showMessage('网络错误: ' + e.message, true)
-                    } finally {
-                        loading.value = false
-                    }
-                }
-
-                const handleRegister = async () => {
-                    if(!regForm.username || !regForm.password) {
-                        showMessage('请输入用户名和密码', true)
-                        return
-                    }
-                    loading.value = true
-                    try {
-                        const res = await fetch('/api/users/register', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(regForm)
-                        })
-                        const data = await res.json()
-                        if (data.success) {
-                            showMessage('注册成功！请登录。', false)
-                            isLogin.value = true // switch to login
-                            loginForm.username = regForm.username
-                        } else {
-                            showMessage(data.message || '注册失败', true)
-                        }
-                    } catch (e) {
-                        showMessage('网络错误: ' + e.message, true)
-                    } finally {
-                        loading.value = false
-                    }
-                }
-
-                return {
-                    isLogin,
-                    loading,
-                    message,
-                    loginForm,
-                    regForm,
-                    handleLogin,
-                    handleRegister
-                }
+            function switchTab(showLogin) {
+                loginForm.classList.toggle('hidden', !showLogin);
+                registerForm.classList.toggle('hidden', showLogin);
+                loginTab.classList.toggle('active', showLogin);
+                registerTab.classList.toggle('active', !showLogin);
+                messageBox.className = 'message-box hidden';
+                messageBox.textContent = '';
             }
-        }).mount('#app')
+
+            function showMessage(text, isError) {
+                messageBox.textContent = text;
+                messageBox.className = 'message-box ' + (isError ? 'message-error' : 'message-success');
+            }
+
+            loginTab.addEventListener('click', function () {
+                switchTab(true);
+            });
+
+            registerTab.addEventListener('click', function () {
+                switchTab(false);
+            });
+
+            loginForm.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                const username = document.getElementById('loginUsername').value.trim();
+                const password = document.getElementById('loginPassword').value.trim();
+
+                if (!username || !password) {
+                    showMessage('请输入用户名和密码', true);
+                    return;
+                }
+
+                App.setButtonLoading(loginButton, true, '登录中...', '进入系统');
+                try {
+                    const data = await App.request('/api/users/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: username, password: password })
+                    });
+
+                    if (data.success) {
+                        App.setUser(data.user);
+                        showMessage('登录成功，正在进入系统...', false);
+                        App.showToast('欢迎回来，' + data.user.username, 'success');
+                        window.setTimeout(function () {
+                            window.location.href = 'dashboard.html';
+                        }, 900);
+                        return;
+                    }
+
+                    showMessage(data.message || '用户名或密码错误', true);
+                } catch (error) {
+                    showMessage('登录失败：' + error.message, true);
+                } finally {
+                    App.setButtonLoading(loginButton, false, '登录中...', '进入系统');
+                }
+            });
+
+            registerForm.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                const username = document.getElementById('registerUsername').value.trim();
+                const email = document.getElementById('registerEmail').value.trim();
+                const password = document.getElementById('registerPassword').value.trim();
+
+                if (!username || !password) {
+                    showMessage('请完整填写用户名和密码', true);
+                    return;
+                }
+
+                App.setButtonLoading(registerButton, true, '注册中...', '完成注册');
+                try {
+                    const data = await App.request('/api/users/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: username, email: email, password: password })
+                    });
+
+                    if (data.success) {
+                        showMessage('注册成功，请直接登录。', false);
+                        document.getElementById('loginUsername').value = username;
+                        switchTab(true);
+                        return;
+                    }
+
+                    showMessage(data.message || '注册失败', true);
+                } catch (error) {
+                    showMessage('注册失败：' + error.message, true);
+                } finally {
+                    App.setButtonLoading(registerButton, false, '注册中...', '完成注册');
+                }
+            });
+        })();
     </script>
 </body>
 </html>
