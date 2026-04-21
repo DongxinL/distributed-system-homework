@@ -1,33 +1,38 @@
 # 分布式系统作业：商品库存及秒杀系统设计
 
-本项目在原有的高并发读基础架构之上，进一步实现了简单的商品库存及秒杀系统基础功能，包括用户注册登录、商品展示等，并完成了系统设计文档。
+本项目在原有的高并发读基础架构之上，逐步演进为一个包含秒杀、缓存、消息最终一致性、服务注册配置、统一网关与流量治理能力的课程作业系统。
 
 ## 1. 系统架构设计
 
-系统采用分层架构设计，逻辑上拆分为用户服务、商品服务、订单服务和库存服务。目前物理部署上运行在同一个 Spring Boot 应用容器中，通过 Nginx 进行负载均衡。
+系统采用分层架构设计，逻辑上拆分为用户服务、商品服务、订单服务和库存服务。当前物理部署上保留 2 个业务实例，并在其前方增加 Nginx、Spring Cloud Gateway 与 Nacos，形成完整的“静态资源入口 + 网关 + 服务注册配置中心 + 业务集群”链路。
 
 ### 前后端分离与动静分离
-- **前端架构**: 使用 HTML5 + CSS3 + **Vue 3 (CDN)** 实现。无需像传统前端工程那样使用 Webpack/Vite 单独启动 Node.js 服务器。
-- **静态资源托管**: 前端页面和静态文件（图片、样式）完全由 **Nginx** 容器直接托管。Nginx 将本机 `./static` 目录挂载到容器内部提供服务。
-- **API 反向代理**: 前端向 `/api/*` 发起的请求，由 Nginx 拦截并负载均衡转发至后端的 Spring Boot 实例。
+- **前端架构**: 使用 HTML5 + CSS3 + 原生 JavaScript 实现，无需外网 CDN，也无需单独启动前端开发服务器。
+- **静态资源托管**: 前端页面和静态文件完全由 **Nginx** 容器直接托管。Nginx 将本机 `./static` 目录挂载到容器内部提供服务。
+- **统一网关入口**: 前端向 `/api/*`、`/lab/*`、`/gateway/*` 发起的请求，先进入 Nginx，再统一转发到 **Spring Cloud Gateway**。
+- **服务发现与配置**: Gateway 与业务服务都注册到 **Nacos**，并从 Nacos 拉取可动态刷新的配置。
 
 ```mermaid
 graph TD
-    User[用户/浏览器] --> Nginx[Nginx 负载均衡]
-    Nginx --> |静态资源访问| Static[挂载的静态文件 (HTML/Vue/CSS)]
-    Nginx --> |/api 请求| AppCluster[后端服务集群]
+  User[用户/浏览器] --> Nginx[Nginx 静态资源入口]
+  Nginx --> |HTML/CSS/JS| Static[静态页面]
+  Nginx --> |/api /lab /gateway| Gateway[Spring Cloud Gateway]
+  Gateway --> |服务发现| Nacos[(Nacos)]
+  Gateway --> |lb://flash-sale-service| AppCluster[业务服务集群]
     
     subgraph "后端服务 (Spring Boot)"
         AppCluster --> UserController[用户服务]
         AppCluster --> ProductController[商品服务]
         AppCluster --> OrderController[订单服务]
-        AppCluster --> InventoryController[库存服务]
+    AppCluster --> GovernanceController[治理演示接口]
     end
     
+  AppCluster --> Nacos
     UserController --> MySQL[(MySQL 数据库)]
     ProductController --> MySQL
     OrderController --> MySQL
-    InventoryController --> MySQL
+  OrderController --> Kafka[(Kafka)]
+  ProductController --> Redis[(Redis)]
 ```
 
 ### 服务职责
@@ -35,6 +40,7 @@ graph TD
 - **商品服务**: 商品信息的增删改查。
 - **库存服务**: 管理商品库存，处理库存扣减（乐观锁）。
 - **订单服务**: 处理下单逻辑，创建订单。
+- **治理演示服务**: 提供动态配置查询、实例探活、热点接口与不稳定接口，供网关层限流/熔断/降级验证。
 
 ## 2. 数据库设计 (ER图)
 
@@ -92,8 +98,11 @@ erDiagram
 | **Web 框架** | Spring Boot 3.2.3 | 快速开发，自动配置 |
 | **ORM 框架** | MyBatis-Plus 3.5.5 | 简化 SQL 操作，提供强大的 CRUD 能力 |
 | **数据库** | MySQL 8.0 | 稳定可靠的关系型数据库 |
+| **服务注册配置中心** | Nacos 2.3.2 | 服务注册发现、配置管理、动态刷新 |
+| **服务网关** | Spring Cloud Gateway | 统一入口、动态路由、限流、熔断降级 |
 | **容器化** | Docker & Docker Compose | 环境隔离，一键部署 |
-| **负载均衡** | Nginx | 反向代理，静态资源服务器 |
+| **反向代理** | Nginx | 静态资源入口，反向代理到网关 |
+| **流量治理** | Resilience4j + RedisRateLimiter | 熔断、降级、热点限流 |
 | **前端** | HTML5 + CSS3 + Vanilla JS | 原生开发，轻量级 |
 
 ## 4. API 接口文档
@@ -125,8 +134,9 @@ docker-compose up -d --build
 1.  **访问登录页**: [http://localhost/static/login.html](http://localhost/static/login.html)
     -   默认账号: `admin` / `admin123`
     -   或者点击 "Register" 注册新账号。
-2.  **查看商品**: 登录成功后会自动跳转到 Dashboard，查看商品列表。
-3.  **数据库检查**: 连接 `localhost:3307` 查看 `users`, `products` 等表数据。
+2.  **查看商品**: 登录成功后会自动跳转到 Dashboard，查看商品列表与治理实验面板。
+3.  **治理验证**: 在 Dashboard 中可直接点击“刷新治理配置”“热点限流测试”“熔断降级测试”。
+4.  **数据库检查**: 连接 `localhost:3307` 查看 `users`, `products` 等表数据。
 
 ## 6. 服务连接信息与数据库管理
 
@@ -166,8 +176,150 @@ docker-compose up -d --build
 | :--- | :--- | :--- |
 | **MySQL (宿主机)** | `localhost:3307` | 用户: `user` / 密码: `password` |
 | **Redis (宿主机)** | `localhost:6379` | 无密码，默认 db0 |
+| **Nacos 控制台** | `http://localhost:8848/nacos` | 默认未开启鉴权 |
+| **Gateway (宿主机)** | `http://localhost:8088` | 可直接验证网关健康与路由 |
 | **Web 入口** | `http://localhost` | Nginx |
-| **API 接口** | `http://localhost/api/...` | 经 Nginx 转发 |
+| **API 接口** | `http://localhost/api/...` | Nginx -> Gateway -> 业务服务 |
+
+---
+
+## Homework6：服务治理 — Nacos + Spring Cloud Gateway + 流量治理
+
+### 1. 作业目标
+
+本次作业在现有秒杀系统基础上，引入服务治理能力，完成以下目标：
+
+1. 搭建 Nacos 环境，实现服务注册与配置管理。
+2. 引入 Spring Cloud Gateway，使用网关地址统一访问业务服务。
+3. 通过 Nacos 配置动态刷新业务参数，验证配置变更实时生效。
+4. 对治理演示接口实现限流、熔断和降级。
+
+### 2. 架构设计
+
+```mermaid
+graph TD
+    Browser[浏览器] --> Nginx[Nginx 静态资源入口]
+    Nginx --> Gateway[Spring Cloud Gateway]
+    Gateway --> Nacos[(Nacos)]
+    Gateway --> FlashSale1[flash-sale-service-1]
+    Gateway --> FlashSale2[flash-sale-service-2]
+    FlashSale1 --> MySQL[(MySQL 主从)]
+    FlashSale2 --> Redis[(Redis)]
+    FlashSale1 --> Kafka[(Kafka)]
+    FlashSale2 --> Kafka
+```
+
+### 3. 本次新增内容
+
+#### 3.1 Nacos 注册与配置
+
+- `app1` 与 `app2` 统一注册为 `flash-sale-service`，实例名分别为 `flash-sale-service-1`、`flash-sale-service-2`。
+- 新增 `GovernanceController` 与 `GovernanceService`，提供以下治理演示接口：
+  - `GET /api/governance/ping`：查看当前命中的业务实例。
+  - `GET /api/governance/config`：查看 Nacos 下发的动态配置。
+  - `GET /api/governance/hot`：热点接口，用于网关限流验证。
+  - `GET /api/governance/unstable`：不稳定接口，用于网关熔断与降级验证。
+- 新增 `nacos-init` 容器，启动后自动把以下配置发布到 Nacos：
+  - `flash-sale-service.yaml`
+  - `gateway-service.yaml`
+
+#### 3.2 Spring Cloud Gateway 统一入口
+
+- 新增独立子工程 `gateway/`，运行 Spring Cloud Gateway。
+- Gateway 注册到 Nacos，并开启 `Discovery Locator`，可通过服务名路径直接访问：
+  - `http://localhost/flash-sale-service/api/governance/ping`
+- Gateway 同时定义了三类路由：
+  - `/api/**`：业务接口统一入口。
+  - `/lab/hot`：热点接口限流实验入口。
+  - `/lab/unstable`：熔断降级实验入口。
+
+#### 3.3 流量治理实现
+
+- **限流**：`/lab/hot` 通过 Gateway `RequestRateLimiter + RedisRateLimiter` 限制请求速率。
+- **熔断**：`/lab/unstable` 通过 Resilience4j CircuitBreaker 监测超时或失败。
+- **降级**：熔断触发后转发到 `GET /gateway/fallback/governance`，返回统一降级结果。
+
+### 4. 核心访问路径
+
+| 场景 | 访问地址 | 说明 |
+| :--- | :--- | :--- |
+| 登录页 | `http://localhost/login.html` | 进入系统 |
+| 商品与治理控制台 | `http://localhost/dashboard.html` | 商品列表 + 治理实验入口 |
+| 业务接口统一入口 | `http://localhost/api/...` | 经过 Nginx 与 Gateway |
+| 动态服务路由验证 | `http://localhost/flash-sale-service/api/governance/ping` | 由 Discovery Locator 生成 |
+| 网关配置查看 | `http://localhost/gateway/info` | 查看 Gateway 动态配置 |
+| 热点限流实验 | `http://localhost/lab/hot?caller=test` | 连续访问观察限流 |
+| 熔断降级实验 | `http://localhost/lab/unstable?mode=timeout` | 观察降级返回 |
+
+### 5. 启动步骤
+
+```bash
+# 1. 构建并启动全部服务
+docker-compose up -d --build
+
+# 2. (首次环境) 初始化主从复制
+bash setup-replication.sh
+
+# 3. 查看 nacos-init 是否执行完成
+docker compose ps
+
+# 4. 打开 Nacos 控制台查看服务注册情况
+# http://localhost:8848/nacos
+```
+
+### 6. 验证流程
+
+#### 6.1 服务注册发现验证
+
+1. 打开 Nacos 控制台，确认存在 `flash-sale-service` 与 `gateway-service`。
+2. 访问 `http://localhost/flash-sale-service/api/governance/ping`。
+3. 多次刷新，观察返回的 `instance` 字段在不同业务实例间切换。
+
+#### 6.2 动态配置验证
+
+1. 打开 Nacos 控制台，编辑 `flash-sale-service.yaml`。
+2. 修改 `homework.governance.banner` 或 `tip`。
+3. 在 Dashboard 点击“刷新治理配置”，观察页面文案变化。
+
+#### 6.3 限流验证
+
+1. 登录进入 Dashboard。
+2. 连续点击“热点限流测试”或直接频繁访问 `http://localhost/lab/hot?caller=test`。
+3. 当请求超过阈值时，会收到 429 或限流错误提示。
+
+#### 6.4 熔断降级验证
+
+1. 点击 Dashboard 中“熔断降级测试”。
+2. Gateway 会请求 `/api/governance/unstable?mode=timeout`。
+3. 当响应超时后，Gateway 返回降级 JSON，说明熔断和降级策略已生效。
+
+### 7. 本次新增/修改文件
+
+| 文件 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `gateway/` | 新增 | 独立 Spring Cloud Gateway 子工程 |
+| `nacos/configs/flash-sale-service.yaml` | 新增 | 业务服务动态配置 |
+| `nacos/configs/gateway-service.yaml` | 新增 | 网关动态配置 |
+| `nacos/init-nacos.sh` | 新增 | Nacos 配置自动初始化脚本 |
+| `controller/GovernanceController.java` | 新增 | 治理演示接口 |
+| `service/GovernanceService.java` | 新增 | 治理逻辑实现 |
+| `config/GovernanceProperties.java` | 新增 | 动态配置绑定 |
+| `static/dashboard.html` | 重写 | 商品页 + 治理实验台 |
+| `static/login.html` | 重写 | 无外网依赖的登录注册页 |
+| `static/orders.html` | 重写 | 订单页重构 |
+| `static/product-detail.html` | 重写 | 商品详情页重构 |
+| `static/app.js` | 新增 | 前端共享工具函数 |
+
+### 8. 达成效果总结
+
+| 能力 | 实现方式 | 验证结果 |
+| :--- | :--- | :--- |
+| 服务注册发现 | Nacos Discovery | Gateway 可发现两个业务实例 |
+| 配置动态刷新 | Nacos Config + RefreshScope | 页面可读取并展示最新配置 |
+| 动态服务路由 | Gateway Discovery Locator | 可通过服务名路径访问业务接口 |
+| 热点限流 | RequestRateLimiter + RedisRateLimiter | 高频请求被限制 |
+| 熔断降级 | Resilience4j CircuitBreaker + Fallback | 超时后返回降级结果 |
+
 
 ---
 
