@@ -1,0 +1,95 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: ${SPRING_APPLICATION_NAME:gateway-service}
+  config:
+    import: optional:nacos:${spring.application.name}.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: 3000ms
+  cloud:
+    nacos:
+      server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: DEFAULT_GROUP
+        metadata:
+          role: gateway
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: DEFAULT_GROUP
+        file-extension: yaml
+        refresh-enabled: true
+        import-check:
+          enabled: false
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      httpclient:
+        connect-timeout: 1000
+        response-timeout: 2s
+      routes:
+        - id: flash-sale-api
+          uri: lb://flash-sale-service
+          predicates:
+            - Path=/api/**
+        - id: governance-hot-demo
+          uri: lb://flash-sale-service
+          predicates:
+            - Path=/lab/hot
+          filters:
+            - SetPath=/api/governance/hot
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipKeyResolver}'
+                redis-rate-limiter.replenishRate: 2
+                redis-rate-limiter.burstCapacity: 4
+                redis-rate-limiter.requestedTokens: 1
+        - id: governance-unstable-demo
+          uri: lb://flash-sale-service
+          predicates:
+            - Path=/lab/unstable
+          filters:
+            - SetPath=/api/governance/unstable
+            - name: CircuitBreaker
+              args:
+                name: governanceCircuit
+                fallbackUri: forward:/gateway/fallback/governance
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway,refresh
+  endpoint:
+    health:
+      show-details: always
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      governanceCircuit:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 5
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+  timelimiter:
+    instances:
+      governanceCircuit:
+        timeout-duration: 1500ms
+
+gateway:
+  lab:
+    welcome: 网关配置已从默认值加载
+    note: 可在 Nacos 中修改 gateway-service.yaml 后刷新验证

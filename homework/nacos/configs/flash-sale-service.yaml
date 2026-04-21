@@ -1,0 +1,6 @@
+homework:
+  governance:
+    banner: Nacos 动态配置已接管业务服务
+    tip: 修改此配置并刷新页面，可观察业务服务配置即时生效
+    unstable-delay-ms: 3200
+    fallback-message: 业务服务已进入降级模式

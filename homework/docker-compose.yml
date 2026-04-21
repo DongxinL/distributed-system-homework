@@ -1,4 +1,31 @@
 services:
+  nacos:
+    image: nacos/nacos-server:v2.3.2
+    container_name: nacos
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 256m
+      JVM_XMX: 256m
+      JVM_XMN: 128m
+    ports:
+      - "8848:8848"
+    networks:
+      - distributed-net
+
+  nacos-init:
+    image: curlimages/curl:8.7.1
+    container_name: nacos-init
+    depends_on:
+      - nacos
+    volumes:
+      - ./nacos/configs:/configs:ro
+      - ./nacos/init-nacos.sh:/scripts/init-nacos.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/init-nacos.sh"]
+    networks:
+      - distributed-net
+
   mysql-master:
     image: mysql:8.0
     container_name: mysql-master
@@ -97,11 +124,15 @@ services:
       - SPRING_DATASOURCE_SLAVE_URL=jdbc:mysql://mysql-slave:3306/test_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
       - SPRING_DATASOURCE_SLAVE_USERNAME=user
       - SPRING_DATASOURCE_SLAVE_PASSWORD=password
-      - SPRING_APPLICATION_NAME=app1
+      - SPRING_APPLICATION_NAME=flash-sale-service
+      - INSTANCE_NAME=flash-sale-service-1
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - NACOS_SERVER_ADDR=nacos:8848
     depends_on:
+      nacos:
+        condition: service_started
       mysql-master:
         condition: service_healthy
       mysql-slave:
@@ -127,11 +158,15 @@ services:
       - SPRING_DATASOURCE_SLAVE_URL=jdbc:mysql://mysql-slave:3306/test_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
       - SPRING_DATASOURCE_SLAVE_USERNAME=user
       - SPRING_DATASOURCE_SLAVE_PASSWORD=password
-      - SPRING_APPLICATION_NAME=app2
+      - SPRING_APPLICATION_NAME=flash-sale-service
+      - INSTANCE_NAME=flash-sale-service-2
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - NACOS_SERVER_ADDR=nacos:8848
     depends_on:
+      nacos:
+        condition: service_started
       mysql-master:
         condition: service_healthy
       mysql-slave:
@@ -139,6 +174,31 @@ services:
       redis:
         condition: service_healthy
       kafka:
+        condition: service_started
+    networks:
+      - distributed-net
+
+  gateway:
+    build: ./gateway
+    container_name: gateway
+    ports:
+      - "8088:8080"
+    environment:
+      - SERVER_PORT=8080
+      - SPRING_APPLICATION_NAME=gateway-service
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - NACOS_SERVER_ADDR=nacos:8848
+    depends_on:
+      nacos:
+        condition: service_started
+      nacos-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      app1:
+        condition: service_started
+      app2:
         condition: service_started
     networks:
       - distributed-net
@@ -152,8 +212,7 @@ services:
       - ./nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./static:/usr/share/nginx/html/static:ro
     depends_on:
-      - app1
-      - app2
+      - gateway
     networks:
       - distributed-net
 

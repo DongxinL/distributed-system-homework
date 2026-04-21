@@ -1,0 +1,4 @@
+gateway:
+  lab:
+    welcome: Nacos 动态配置已接管网关
+    note: 当前网关已启用动态发现、限流和熔断降级策略
