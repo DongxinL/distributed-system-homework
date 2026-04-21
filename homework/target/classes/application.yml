@@ -1,9 +1,30 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 spring:
   application:
-    name: demo-app
+    name: ${SPRING_APPLICATION_NAME:flash-sale-service}
+  config:
+    import: optional:nacos:${spring.application.name}.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+  cloud:
+    nacos:
+      server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: DEFAULT_GROUP
+        metadata:
+          instanceName: ${INSTANCE_NAME:${HOSTNAME:flash-sale-instance}}
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+        group: DEFAULT_GROUP
+        file-extension: yaml
+        refresh-enabled: true
+        import-check:
+          enabled: false
   datasource:
     dynamic:
       primary: master
@@ -42,3 +63,24 @@ mybatis-plus:
   type-aliases-package: com.example.demo.entity
   configuration:
     map-underscore-to-camel-case: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,refresh
+  endpoint:
+    health:
+      show-details: always
+
+info:
+  app:
+    name: ${spring.application.name}
+    description: flash-sale service with nacos governance demo
+
+homework:
+  governance:
+    banner: 本地默认治理配置已生效
+    tip: 请在 Nacos 控制台修改 flash-sale-service.yaml 验证动态刷新
+    unstable-delay-ms: 2500
+    fallback-message: 服务已降级，返回本地兜底结果
